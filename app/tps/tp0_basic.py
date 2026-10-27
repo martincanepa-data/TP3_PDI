@@ -1,5 +1,6 @@
 import re
-
+import numpy as np
+import cv2
 import customtkinter as ctk
 
 from app.core import image_io, image_ops
@@ -14,7 +15,12 @@ class ControladorTP0:
     def __init__(self, app):
         self.app = app
         self.imagen_b = None
-
+        self.x_min = None
+        self.x_max = None
+        self.y_min = None
+        self.y_max = None
+        self.theta_1 = None
+        self.theta_0 = None
         self.entrada_x = None
         self.entrada_y = None
         self.entrada_valor = None
@@ -32,7 +38,9 @@ class ControladorTP0:
             SECCION_MENU, "Cargar imagen", self.cargar_imagen_original, primario=True
         )
         barra_lateral.agregar_boton(SECCION_MENU, "Guardar imagen", self.guardar_resultado)
-        barra_lateral.agregar_boton(SECCION_MENU, "Copiar selección", self.copiar_region_seleccionada)
+        barra_lateral.agregar_boton(SECCION_MENU, "Copiar selección objeto", self.copiar_region_seleccionada_objeto)
+        barra_lateral.agregar_boton(SECCION_MENU, "Copiar selección fondo", self.copiar_region_seleccionada_fondo)
+
 
     def cargar_imagen_original(self) -> None:
         ruta = self.app.elegir_ruta_apertura()
@@ -73,8 +81,28 @@ class ControladorTP0:
             image_io.guardar_imagen(ruta, self.app.imagen_resultado)
         except IOError as error:
             self.app.mostrar_error(str(error))
+    def _obtener_region_seleccionada(self):
+        seleccion = self.app.ultima_seleccion
+        if seleccion is None:
+            self.app.mostrar_error("Primero seleccioná una región arrastrando el mouse sobre una imagen.")
+            return None
 
-    def copiar_region_seleccionada(self) -> None:
+        imagen_origen = (
+            self.app.imagen_original if seleccion["origen"] == "original" else self.app.imagen_resultado
+        )
+        if imagen_origen is None:
+            self.app.mostrar_error("No hay imagen cargada en el panel donde se hizo la selección.")
+            return None
+
+        try:
+            region = image_ops.copiar_region(
+                imagen_origen, seleccion["x1"], seleccion["y1"], seleccion["x2"], seleccion["y2"]
+            )
+            return region
+        except ValueError as error:
+            self.app.mostrar_error(str(error))
+            return None
+    def copiar_region_seleccionada_objeto(self) -> None:
         seleccion = self.app.ultima_seleccion
         if seleccion is None:
             self.app.mostrar_error("Primero seleccioná una región arrastrando el mouse sobre una imagen.")
@@ -94,6 +122,62 @@ class ControladorTP0:
         except ValueError as error:
             self.app.mostrar_error(str(error))
             return
+
+        # 1. CAPTURAR PUNTOS DE INICIO Y FIN (Asegurando que min/max funcionen independientemente de la dirección del arrastre)
+        x_min = min(seleccion["x1"], seleccion["x2"])
+        x_max = max(seleccion["x1"], seleccion["x2"])
+        y_min = min(seleccion["y1"], seleccion["y2"])
+        y_max = max(seleccion["y1"], seleccion["y2"])
+
+        self.x_min = x_min
+        self.x_max = x_max
+        self.y_min = y_min
+        self.y_max = y_max
+
+
+        # Guardar las coordenadas de la región inicial (Bounding Box del objeto)
+        self.bbox_objeto = {
+            "x1": x_min,
+            "y1": y_min,
+            "x2": x_max,
+            "y2": y_max,
+            "ancho": x_max - x_min,
+            "alto": y_max - y_min
+        }
+
+        # 2. CALCULAR EL PROMEDIO DE GRIS (theta_1)
+        if region.ndim == 3:
+            region_gris = cv2.cvtColor(region, cv2.COLOR_BGR2GRAY)
+        else:
+            region_gris = region
+
+        self.theta_1 = float(np.mean(region_gris))
+
+        # Imprimir en consola para verificar los valores capturados
+        print(f"--- Objeto Registrado ---")
+        print(f"Inicio (X1, Y1): ({x_min}, {y_min})")
+        print(f"Fin    (X2, Y2): ({x_max}, {y_max})")
+        print(f"Tamaño: {self.bbox_objeto['ancho']}x{self.bbox_objeto['alto']} px")
+        print(f"Valor medio (theta_1): {self.theta_1:.2f}")
+
+        # Mostrar la región recortada en la interfaz
+        self.app.establecer_resultado(region)
+
+    def copiar_region_seleccionada_fondo(self) -> None:
+        region = self._obtener_region_seleccionada()
+        if region is None:
+            return
+
+        if region.ndim == 3:
+            region_gris = cv2.cvtColor(region, cv2.COLOR_BGR2GRAY)
+        else:
+            region_gris = region
+
+        # Guardar valor medio del fondo
+        self.theta_0 = float(np.mean(region_gris))
+        print(f"Fondo registrado -> theta_0 (promedio): {self.theta_0:.2f}")
+
+        # Mostrar en el panel de resultado
         self.app.establecer_resultado(region)
 
     def _construir_seccion_pixel(self, barra_lateral) -> None:

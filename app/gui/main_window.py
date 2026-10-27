@@ -8,6 +8,7 @@ from app.gui.sidebar import BarraLateral
 from app.tps.tp0_basic import ControladorTP0, SECCION_MENU
 from app.tps.tp1_operadores import ControladorTP1
 from app.tps.tp2_filtros import ControladorTP2
+from app.tps.tp3_canny import ControladorTP3
 
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
@@ -71,6 +72,10 @@ class VentanaPrincipal(ctk.CTk):
         self.barra_lateral.grupo_actual = "TP2"
         self.tp2 = ControladorTP2(self)
         self.tp2.registrar(self.barra_lateral)
+
+        self.barra_lateral.grupo_actual = "TP3"
+        self.tp3 = ControladorTP3(self)
+        self.tp3.registrar(self.barra_lateral)
 
         self.barra_lateral.construir_selector("TP2")
 
